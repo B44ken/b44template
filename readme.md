@@ -1,8 +1,14 @@
 # b44template
 
-vite, react, typescript, tailwind, b44ui
+a minimal vite app wired to `b44ui`
 
 ```bash
-gh repo clone b44ken/b44ui
-rm -r b44ui/.git # you probably want this
+npm install
+npm run dev
+```
+
+the only stylesheet import should be:
+
+```css
+@import "b44ui/tailwind.css";
 ```
