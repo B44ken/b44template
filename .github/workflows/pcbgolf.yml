@@ -13,7 +13,7 @@ jobs:
         run: |
           sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
           sudo apt-get update
-          sudo apt-get install -y kicad jq xvfb
+          sudo apt-get install -y --no-install-recommends kicad jq xvfb
       - name: fetch challenge
         run: git clone --depth 1 https://github.com/commaai/PCBGolf.git work
       - name: forward annotate
