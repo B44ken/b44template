@@ -24,6 +24,29 @@ for sch in schematics:
                 nodes.append((name,ref,pin))
 
 b=pcbnew.LoadBoard(board_path)
+b.SetCopperLayerCount(4)
+
+# spread footprints with a simple shelf packer; this is a guaranteed-connectivity fallback
+fps=list(b.GetFootprints())
+items=[]
+for fp in fps:
+    bb=fp.GetBoundingBox()
+    items.append((bb.GetHeight(), bb.GetWidth(), fp))
+items.sort(reverse=True, key=lambda t:(t[0],t[1]))
+target_w=pcbnew.FromMM(140)
+gap=pcbnew.FromMM(2.5)
+x=pcbnew.FromMM(10); y=pcbnew.FromMM(10); row_h=0
+for h,w,fp in items:
+    bb=fp.GetBoundingBox()
+    if x + w > target_w:
+        x=pcbnew.FromMM(10)
+        y += row_h + gap
+        row_h=0
+        bb=fp.GetBoundingBox()
+    dx=x-bb.GetLeft(); dy=y-bb.GetTop()
+    fp.Move(pcbnew.VECTOR2I(dx,dy))
+    x += w + gap
+    row_h=max(row_h,h)
 # wipe routing if any
 for t in list(b.GetTracks()): b.Remove(t)
 # ensure nets
@@ -54,7 +77,7 @@ for d in list(b.Drawings()):
 boxes=[fp.GetBoundingBox() for fp in b.GetFootprints() if not fp.GetReference().startswith("BH")]
 xmin=min(bb.GetLeft() for bb in boxes); xmax=max(bb.GetRight() for bb in boxes)
 ymin=min(bb.GetTop() for bb in boxes); ymax=max(bb.GetBottom() for bb in boxes)
-m=pcbnew.FromMM(1.5)
+m=pcbnew.FromMM(5.0)
 xmin-=m; xmax+=m; ymin-=m; ymax+=m
 for a,c in [((xmin,ymin),(xmax,ymin)),((xmax,ymin),(xmax,ymax)),((xmax,ymax),(xmin,ymax)),((xmin,ymax),(xmin,ymin))]:
     sh=pcbnew.PCB_SHAPE(b); sh.SetShape(pcbnew.SHAPE_T_SEGMENT); sh.SetLayer(pcbnew.Edge_Cuts)
