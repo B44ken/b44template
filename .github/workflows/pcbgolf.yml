@@ -1,7 +1,7 @@
 name: pcbgolf-route
 on:
   push:
-    branches: [pcbgolf-work, pcbgolf-four]
+    branches: ['pcbgolf-*']
   workflow_dispatch:
 jobs:
   route:
