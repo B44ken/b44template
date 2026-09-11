@@ -24,6 +24,7 @@ for sch in schematics:
                 nodes.append((name,ref,pin))
 
 b=pcbnew.LoadBoard(board_path)
+b.SetCopperLayerCount(4)
 # wipe routing if any
 for t in list(b.GetTracks()): b.Remove(t)
 # ensure nets
