@@ -1,0 +1,51 @@
+name: pcbgolf-channel
+on:
+  push:
+    branches: [pcbgolf-channel6]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: install KiCad
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends kicad jq xvfb
+      - name: fetch challenge
+        run: git clone --depth 1 https://github.com/commaai/PCBGolf.git work
+      - name: deterministic channel route
+        run: /usr/bin/python3 scripts/channel_route.py work
+      - name: verify and export
+        run: |
+          mkdir -p out
+          cp work/pcbgolf.kicad_pcb out/
+          cp work/pcbgolf.kicad_pro out/
+          cp work/channel_report.json out/
+          kicad-cli pcb drc --format json --all-track-errors -o out/drc.json work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb export svg --layers F.Cu,In1.Cu,In2.Cu,In3.Cu,In4.Cu,B.Cu,Edge.Cuts,F.Silkscreen -o out/board.svg work/pcbgolf.kicad_pcb
+          kicad-cli pcb export step -o out/board.step work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb export stl -o out/board.stl work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb render -o out/board-top.png --side top --quality high --background opaque work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb render -o out/board-bottom.png --side bottom --quality high --background opaque work/pcbgolf.kicad_pcb || true
+          /usr/bin/python3 - <<'PY'
+          import json, pcbnew
+          b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
+          tracks=list(b.GetTracks())
+          vias=[t for t in tracks if isinstance(t,pcbnew.PCB_VIA)]
+          segs=[t for t in tracks if isinstance(t,pcbnew.PCB_TRACK) and not isinstance(t,pcbnew.PCB_VIA)]
+          rep={"tracks":len(segs),"vias":len(vias),"layers":b.GetCopperLayerCount()}
+          try:
+              b.BuildConnectivity()
+              c=b.GetConnectivity()
+              if hasattr(c,"GetUnconnectedCount"): rep["unconnected"]=c.GetUnconnectedCount()
+          except Exception as e: rep["connectivity_error"]=repr(e)
+          open("out/route_stats.json","w").write(json.dumps(rep,indent=2))
+          print(rep)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pcbgolf-channel6
+          path: out
