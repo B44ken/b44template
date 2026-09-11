@@ -26,6 +26,41 @@ for sch in schematics:
 b=pcbnew.LoadBoard(board_path)
 b.SetCopperLayerCount(4)
 
+# JLC-friendly advanced rules: 0.10 mm trace/space, 0.45/0.20 mm vias.
+b.BuildConnectivity()
+ns=b.GetConnectivity().GetNetSettings()
+nc=ns.GetDefaultNetclass()
+nc.SetClearance(pcbnew.FromMM(0.10))
+nc.SetTrackWidth(pcbnew.FromMM(0.10))
+nc.SetViaDiameter(pcbnew.FromMM(0.45))
+nc.SetViaDrill(pcbnew.FromMM(0.20))
+nc.SetDiffPairWidth(pcbnew.FromMM(0.10))
+nc.SetDiffPairGap(pcbnew.FromMM(0.10))
+nc.SetDiffPairViaGap(pcbnew.FromMM(0.10))
+ns.ClearAllCaches()
+ns.RecomputeEffectiveNetclasses()
+
+# keep project DRC constraints consistent with the routing rules
+pro_path=os.path.join(root,"pcbgolf.kicad_pro")
+with open(pro_path) as f:
+    pro=json.load(f)
+rules=pro["board"]["design_settings"]["rules"]
+rules["min_clearance"]=0.0762
+rules["min_hole_clearance"]=0.20
+rules["min_track_width"]=0.10
+default_nc=pro["net_settings"]["classes"][0]
+default_nc.update({
+    "clearance":0.10,
+    "track_width":0.10,
+    "via_diameter":0.45,
+    "via_drill":0.20,
+    "diff_pair_width":0.10,
+    "diff_pair_gap":0.10,
+    "diff_pair_via_gap":0.10
+})
+with open(pro_path,"w") as f:
+    json.dump(pro,f,indent=2)
+
 # spread footprints with a simple shelf packer; this is a guaranteed-connectivity fallback
 fps=list(b.GetFootprints())
 items=[]
@@ -91,7 +126,8 @@ report={
  "missing_nodes":missing,
  "footprints":len(fps),
  "nets":len(nets),
- "outline_mm":[pcbnew.ToMM(xmax-xmin),pcbnew.ToMM(ymax-ymin)]
+ "outline_mm":[pcbnew.ToMM(xmax-xmin),pcbnew.ToMM(ymax-ymin)],
+ "routing_rules_mm":{"clearance":0.10,"track":0.10,"via_diameter":0.45,"via_drill":0.20}
 }
 open(os.path.join(root,"forward_annotate.json"),"w").write(json.dumps(report,indent=2))
 print(json.dumps(report,indent=2))
