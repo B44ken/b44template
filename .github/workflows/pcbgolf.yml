@@ -36,7 +36,7 @@ jobs:
           curl -fL "$URL" -o freerouting.jar
       - name: autoroute
         run: |
-          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 30 -mt 4
+          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 5 -mt 4
       - name: import route
         run: |
           /usr/bin/python3 - <<'PY'
