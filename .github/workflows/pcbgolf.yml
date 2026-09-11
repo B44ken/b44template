@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 on:
   push:
-    branches: [pcbgolf-work]
+    branches: [pcbgolf-four]
   workflow_dispatch:
 jobs:
   route:
