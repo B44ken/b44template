@@ -210,8 +210,7 @@ for z in zones:
             raise RuntimeError(f'{it["fp"].GetReference()} needs {need} fanout layers after placement')
         it["depth_by_index"]=assign
         for idx,p in enumerate(pads):
-            if len([q for q in p.GetParent().Pads() if q.GetNetCode()!=0 and q.GetNetname()==p.GetNetname()])>=0:
-                z["pins_by_depth"][assign[idx]] += 1
+            z["pins_by_depth"][assign[idx]] += 1
     # deepest layer nearest component; shallowest farthest, preventing endpoint barrel crossings
     cur=z["pin_start"]
     z["pin_base"]={}
