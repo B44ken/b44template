@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 on:
   push:
-    branches: [pcbgolf-work]
+    branches: [pcbgolf-spread]
   workflow_dispatch:
 jobs:
   route:
@@ -39,7 +39,7 @@ jobs:
           curl --retry 6 --retry-all-errors --retry-delay 2 -fL "$URL" -o freerouting.jar
       - name: autoroute
         run: |
-          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 1 -mt 4
+          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 30 -mt 4
       - name: import route
         run: |
           /usr/bin/python3 - <<'PY'
@@ -59,6 +59,8 @@ jobs:
           kicad-cli pcb export svg --layers F.Cu,B.Cu,Edge.Cuts,F.Silkscreen -o out/board.svg work/pcbgolf.kicad_pcb
           kicad-cli pcb export step -o out/board.step work/pcbgolf.kicad_pcb || true
           kicad-cli pcb export stl -o out/board.stl work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb render -o out/board-top.png --side top --quality high --background opaque work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb render -o out/board-bottom.png --side bottom --quality high --background opaque work/pcbgolf.kicad_pcb || true
           /usr/bin/python3 - <<'PY'
           import json, pcbnew, os
           b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
@@ -69,7 +71,7 @@ jobs:
           xs=[];ys=[]
           for e in edges:
               for p in [e.GetStart(),e.GetEnd()]: xs.append(p.x);ys.append(p.y)
-          rep={"tracks":len(segs),"vias":len(vias),"layers":2}
+          rep={"tracks":len(segs),"vias":len(vias),"layers":b.GetCopperLayerCount()}
           if xs: rep["board_mm"]=[pcbnew.ToMM(max(xs)-min(xs)),pcbnew.ToMM(max(ys)-min(ys))]
           open("out/route_stats.json","w").write(json.dumps(rep,indent=2))
           print(rep)
