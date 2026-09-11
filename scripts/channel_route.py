@@ -12,7 +12,7 @@ TRACK=0.09
 CLEAR=0.09
 VIA_D=0.25
 VIA_DRILL=0.15
-PIN_PITCH=0.30
+PIN_PITCH=0.40
 BUS_PITCH=0.30
 CELL_GAP=1.0
 ZONE_GAP=5.0
@@ -116,14 +116,28 @@ def add_track(a,c,net,layer,width=TRACK):
 def pad_positions(fp):
     return [p.GetPosition() for p in fp.Pads() if p.GetNetCode()!=0]
 
-def clique_need(ys, sep=PAD_LANE_SEP):
-    ys=sorted(ys)
-    j=0; mx=0
-    for i,y in enumerate(ys):
-        while j<=i and y-ys[j] >= MM(sep):
-            j+=1
-        mx=max(mx,i-j+1)
-    return mx
+def depth_assignment(pads_or_points, sep=PAD_LANE_SEP):
+    """Assign 1..N fanout depth. Left pads go deeper than nearby right pads,
+    so a horizontal track never crosses a via barrel that reaches its layer."""
+    pts=[]
+    for idx,obj in enumerate(pads_or_points):
+        if hasattr(obj,"GetPosition"):
+            p=obj.GetPosition()
+            pts.append((p.x,p.y,idx,obj))
+        else:
+            pts.append((obj.x,obj.y,idx,obj))
+    # right to left; stable y/index tie-break makes equal-x close tracks use different layers
+    order=sorted(pts,key=lambda q:(-q[0],q[1],q[2]))
+    out={}
+    done=[]
+    for x,y,idx,obj in order:
+        d=1
+        for x2,y2,idx2,obj2,d2 in done:
+            if abs(y-y2)<MM(sep) and (x2>x or (x2==x and idx2<idx)):
+                d=max(d,d2+1)
+        out[idx]=d
+        done.append((x,y,idx,obj,d))
+    return out,max(out.values(),default=1)
 
 # choose an angle per footprint so <=3 horizontal fanout layers suffice
 items=[]
@@ -132,8 +146,8 @@ for fp in b.GetFootprints():
     for k in range(50,851,2): # 5.0..85.0 deg, 0.2 degree steps
         ang=k/10.0
         fp.SetOrientationDegrees(ang)
-        pts=pad_positions(fp)
-        need=clique_need([p.y for p in pts]) if len(pts)>1 else 1
+        pads=[p for p in fp.Pads() if p.GetNetCode()!=0]
+        _,need=depth_assignment(pads) if len(pads)>1 else ({},1)
         bb=fp.GetBoundingBox()
         candidate=(need,bb.GetHeight(),bb.GetWidth(),ang)
         if best is None or candidate<best:
@@ -151,19 +165,21 @@ if max_need>3:
     raise RuntimeError(f"fanout needs {max_need} layers")
 
 # balanced 3-zone vertical placement. Each zone has its own x-local pin-channel block.
-zones=[{"items":[],"h":0,"pins":0} for _ in range(3)]
+zones=[{"items":[],"h":0,"pins":0,"pins_by_depth":{1:0,2:0,3:0}} for _ in range(3)]
 for it in sorted(items,key=lambda x:x["h"],reverse=True):
     z=min(zones,key=lambda z:z["h"])
     z["items"].append(it)
     z["h"] += it["h"] + MM(CELL_GAP)
     z["pins"] += it["pads"]
+    # exact depth counts are recomputed after placement; reserve conservatively here
 
 max_comp_w=max(it["w"] for it in items)+MM(2.0)
 x_cursor=MM(MARGIN)
 for zi,z in enumerate(zones):
     z["comp_left"]=x_cursor
+    # reserve all pins; after placement we split this block by depth (3 nearest, 1 farthest)
     z["pin_start"]=x_cursor+max_comp_w+MM(2.0)
-    z["pin_width"]=MM(PIN_PITCH)*max(z["pins"],1)
+    z["pin_width"]=MM(PIN_PITCH)*max(z["pins"],1)+MM(2.0)
     z["right"]=z["pin_start"]+z["pin_width"]+MM(2.0)
     x_cursor=z["right"]+MM(ZONE_GAP)
 
@@ -184,6 +200,25 @@ for z in zones:
         max_component_bottom=max(max_component_bottom,bb.GetBottom())
     z["bottom"]=y
 
+# compute exact per-zone depth counts after final placement
+for z in zones:
+    z["pins_by_depth"]={1:0,2:0,3:0}
+    for it in z["items"]:
+        pads=[p for p in it["fp"].Pads() if p.GetNetCode()!=0]
+        assign,need=depth_assignment(pads)
+        if need>3:
+            raise RuntimeError(f'{it["fp"].GetReference()} needs {need} fanout layers after placement')
+        it["depth_by_index"]=assign
+        for idx,p in enumerate(pads):
+            if len([q for q in p.GetParent().Pads() if q.GetNetCode()!=0 and q.GetNetname()==p.GetNetname()])>=0:
+                z["pins_by_depth"][assign[idx]] += 1
+    # deepest layer nearest component; shallowest farthest, preventing endpoint barrel crossings
+    cur=z["pin_start"]
+    z["pin_base"]={}
+    for d in (3,2,1):
+        z["pin_base"][d]=cur
+        cur += z["pins_by_depth"][d]*MM(PIN_PITCH)+MM(0.5)
+
 # assign one bus row per electrically multi-node net
 net_pads={}
 for fp in b.GetFootprints():
@@ -199,44 +234,39 @@ route_records=[]
 via_count=0
 track_count=0
 for z in zones:
-    pin_index=0
-    # route in actual y order to make color assignment interval-safe
+    pin_index={1:0,2:0,3:0}
     for it in sorted(z["items"],key=lambda x:x["top"]):
         fp=it["fp"]
         pads=[p for p in fp.Pads() if p.GetNetCode()!=0]
-        pads.sort(key=lambda p:(p.GetPosition().y,p.GetPosition().x,p.GetNumber()))
-        # greedy interval coloring by y; three layers available
-        last=[-10**18]*3
-        colored=[]
-        for pad in pads:
-            y=pad.GetPosition().y
-            options=[c for c in range(3) if y-last[c] >= MM(PAD_LANE_SEP)]
-            if not options:
-                raise RuntimeError(f"{fp.GetReference()} exceeded 3 layer coloring at y={pcbnew.ToMM(y)}")
-            c=options[0]
-            last[c]=y
-            colored.append((pad,c))
-        for pad,c in colored:
+        assign,need=depth_assignment(pads)
+        if need>3:
+            raise RuntimeError(f"{fp.GetReference()} exceeded 3 fanout depths")
+        for idx,pad in enumerate(pads):
+            d=assign[idx]
             net=pad.GetNet()
             pos=pad.GetPosition()
-            # single-node nets need no copper route
             if len(net_pads.get(pad.GetNetname(),[]))<2:
                 continue
-            xpin=z["pin_start"]+pin_index*MM(PIN_PITCH)
-            pin_index+=1
+            xpin=z["pin_base"][d]+pin_index[d]*MM(PIN_PITCH)
+            pin_index[d]+=1
             p1=pcbnew.VECTOR2I(xpin,pos.y)
             p2=pcbnew.VECTOR2I(xpin,bus_y[pad.GetNetname()])
-            layer=fan_layers[c]
-            # HDI skip/blind via from top pad directly to selected fanout layer
-            add_via(pos,net,front_layer,layer); via_count+=1
+            layer=fan_layers[d-1]
+            # PTH pads already connect every copper layer; only SMD pads need via-in-pad.
+            has_hole=False
+            try: has_hole=pad.HasHole()
+            except Exception:
+                try: has_hole=pad.GetDrillSize().x>0
+                except Exception: has_hole=False
+            if not has_hole:
+                add_via(pos,net,front_layer,layer); via_count+=1
             add_track(pos,p1,net,layer); track_count+=1
-            # buried/skip transition from fanout layer to vertical channel layer
+            # endpoint depth blocks are ordered deepest-nearest, so skip barrels are never crossed.
             add_via(p1,net,layer,vert_layer); via_count+=1
             add_track(p1,p2,net,vert_layer); track_count+=1
-            # final transition to bottom net-bus layer
             add_via(p2,net,vert_layer,bus_layer); via_count+=1
             route_records.append((pad.GetNetname(),p2))
-    z["used_pins"]=pin_index
+    z["used_pins"]=sum(pin_index.values())
 
 # bottom-layer horizontal bus per net
 for name,pts in {}.items():
@@ -268,6 +298,7 @@ try:
     rules["min_hole_clearance"]=0.09
     rules["min_track_width"]=0.08
     rules["min_via_diameter"]=0.20
+    rules["min_via_annular_width"]=0.05
     rules["min_microvia_diameter"]=0.20
     rules["min_microvia_drill"]=0.10
     default_nc=pro["net_settings"]["classes"][0]
@@ -290,7 +321,7 @@ report={
  "multi_pad_nets":len(routed_net_names),
  "fanout_max_layers_needed":max_need,
  "zones":[{"height_mm":pcbnew.ToMM(z["h"]),"pins":z["pins"],"used_pins":z["used_pins"],
-           "width_mm":pcbnew.ToMM(z["right"]-z["comp_left"])} for z in zones],
+           "width_mm":pcbnew.ToMM(z["right"]-z["comp_left"]),"pins_by_depth":z["pins_by_depth"]} for z in zones],
  "tracks_added":track_count,
  "vias_added":via_count,
  "board_mm":[pcbnew.ToMM(xmax-xmin),pcbnew.ToMM(ymax-ymin)],
