@@ -24,6 +24,39 @@ for sch in schematics:
                 nodes.append((name,ref,pin))
 
 b=pcbnew.LoadBoard(board_path)
+b.SetCopperLayerCount(6)
+
+# JLCPCB 6-layer aggressive-but-published capability.
+b.BuildConnectivity()
+ns=b.GetConnectivity().GetNetSettings()
+nc=ns.GetDefaultNetclass()
+nc.SetClearance(pcbnew.FromMM(0.09))
+nc.SetTrackWidth(pcbnew.FromMM(0.09))
+nc.SetViaDiameter(pcbnew.FromMM(0.25))
+nc.SetViaDrill(pcbnew.FromMM(0.15))
+nc.SetDiffPairWidth(pcbnew.FromMM(0.09))
+nc.SetDiffPairGap(pcbnew.FromMM(0.09))
+nc.SetDiffPairViaGap(pcbnew.FromMM(0.09))
+ns.ClearAllCaches()
+ns.RecomputeEffectiveNetclasses()
+
+pro_path=os.path.join(root,"pcbgolf.kicad_pro")
+with open(pro_path) as f:
+    pro=json.load(f)
+rules=pro["board"]["design_settings"]["rules"]
+rules["min_clearance"]=0.0762
+rules["min_hole_clearance"]=0.10
+rules["min_track_width"]=0.08
+rules["min_via_diameter"]=0.25
+rules["min_through_hole_diameter"]=0.15
+default_nc=pro["net_settings"]["classes"][0]
+default_nc.update({
+  "clearance":0.09, "track_width":0.09,
+  "via_diameter":0.25, "via_drill":0.15,
+  "diff_pair_width":0.09, "diff_pair_gap":0.09, "diff_pair_via_gap":0.09
+})
+with open(pro_path,"w") as f:
+    json.dump(pro,f,indent=2)
 # wipe routing if any
 for t in list(b.GetTracks()): b.Remove(t)
 # ensure nets
@@ -54,7 +87,7 @@ for d in list(b.Drawings()):
 boxes=[fp.GetBoundingBox() for fp in b.GetFootprints() if not fp.GetReference().startswith("BH")]
 xmin=min(bb.GetLeft() for bb in boxes); xmax=max(bb.GetRight() for bb in boxes)
 ymin=min(bb.GetTop() for bb in boxes); ymax=max(bb.GetBottom() for bb in boxes)
-m=pcbnew.FromMM(1.5)
+m=pcbnew.FromMM(2.0)
 xmin-=m; xmax+=m; ymin-=m; ymax+=m
 for a,c in [((xmin,ymin),(xmax,ymin)),((xmax,ymin),(xmax,ymax)),((xmax,ymax),(xmin,ymax)),((xmin,ymax),(xmin,ymin))]:
     sh=pcbnew.PCB_SHAPE(b); sh.SetShape(pcbnew.SHAPE_T_SEGMENT); sh.SetLayer(pcbnew.Edge_Cuts)
@@ -68,7 +101,8 @@ report={
  "missing_nodes":missing,
  "footprints":len(fps),
  "nets":len(nets),
- "outline_mm":[pcbnew.ToMM(xmax-xmin),pcbnew.ToMM(ymax-ymin)]
+ "outline_mm":[pcbnew.ToMM(xmax-xmin),pcbnew.ToMM(ymax-ymin)],
+ "routing_rules_mm":{"clearance":0.09,"track":0.09,"via_diameter":0.25,"via_drill":0.15}
 }
 open(os.path.join(root,"forward_annotate.json"),"w").write(json.dumps(report,indent=2))
 print(json.dumps(report,indent=2))
