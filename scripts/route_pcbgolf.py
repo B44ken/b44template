@@ -24,6 +24,7 @@ for sch in schematics:
                 nodes.append((name,ref,pin))
 
 b=pcbnew.LoadBoard(board_path)
+b.SetCopperLayerCount(8)
 # wipe routing if any
 for t in list(b.GetTracks()): b.Remove(t)
 # ensure nets
@@ -54,7 +55,7 @@ for d in list(b.Drawings()):
 boxes=[fp.GetBoundingBox() for fp in b.GetFootprints() if not fp.GetReference().startswith("BH")]
 xmin=min(bb.GetLeft() for bb in boxes); xmax=max(bb.GetRight() for bb in boxes)
 ymin=min(bb.GetTop() for bb in boxes); ymax=max(bb.GetBottom() for bb in boxes)
-m=pcbnew.FromMM(1.5)
+m=pcbnew.FromMM(12.0)
 xmin-=m; xmax+=m; ymin-=m; ymax+=m
 for a,c in [((xmin,ymin),(xmax,ymin)),((xmax,ymin),(xmax,ymax)),((xmax,ymax),(xmin,ymax)),((xmin,ymax),(xmin,ymin))]:
     sh=pcbnew.PCB_SHAPE(b); sh.SetShape(pcbnew.SHAPE_T_SEGMENT); sh.SetLayer(pcbnew.Edge_Cuts)
