@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 on:
   push:
-    branches: [pcbgolf-spread]
+    branches: [pcbgolf-spread-fast]
   workflow_dispatch:
 jobs:
   route:
@@ -39,7 +39,7 @@ jobs:
           curl --retry 6 --retry-all-errors --retry-delay 2 -fL "$URL" -o freerouting.jar
       - name: autoroute
         run: |
-          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 30 -mt 4
+          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 1 -mt 4
       - name: import route
         run: |
           /usr/bin/python3 - <<'PY'
