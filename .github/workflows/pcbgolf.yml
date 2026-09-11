@@ -36,7 +36,7 @@ jobs:
         run: |
           URL=$(curl -fsSL https://api.github.com/repos/freerouting/freerouting/releases/latest | jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' | head -1)
           test -n "$URL"
-          curl -fL "$URL" -o freerouting.jar
+          curl --retry 6 --retry-all-errors --retry-delay 2 -fL "$URL" -o freerouting.jar
       - name: autoroute
         run: |
           java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 1 -mt 4
