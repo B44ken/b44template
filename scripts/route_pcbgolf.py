@@ -24,7 +24,7 @@ for sch in schematics:
                 nodes.append((name,ref,pin))
 
 b=pcbnew.LoadBoard(board_path)
-b.SetCopperLayerCount(4)
+b.SetCopperLayerCount(16)
 
 # JLC-friendly advanced rules: 0.10 mm trace/space, 0.45/0.20 mm vias.
 b.BuildConnectivity()
@@ -68,8 +68,8 @@ for fp in fps:
     bb=fp.GetBoundingBox()
     items.append((bb.GetHeight(), bb.GetWidth(), fp))
 items.sort(reverse=True, key=lambda t:(t[0],t[1]))
-target_w=pcbnew.FromMM(140)
-gap=pcbnew.FromMM(2.5)
+target_w=pcbnew.FromMM(190)
+gap=pcbnew.FromMM(6.0)
 x=pcbnew.FromMM(10); y=pcbnew.FromMM(10); row_h=0
 for h,w,fp in items:
     bb=fp.GetBoundingBox()
@@ -112,7 +112,7 @@ for d in list(b.Drawings()):
 boxes=[fp.GetBoundingBox() for fp in b.GetFootprints() if not fp.GetReference().startswith("BH")]
 xmin=min(bb.GetLeft() for bb in boxes); xmax=max(bb.GetRight() for bb in boxes)
 ymin=min(bb.GetTop() for bb in boxes); ymax=max(bb.GetBottom() for bb in boxes)
-m=pcbnew.FromMM(5.0)
+m=pcbnew.FromMM(10.0)
 xmin-=m; xmax+=m; ymin-=m; ymax+=m
 for a,c in [((xmin,ymin),(xmax,ymin)),((xmax,ymin),(xmax,ymax)),((xmax,ymax),(xmin,ymax)),((xmin,ymax),(xmin,ymin))]:
     sh=pcbnew.PCB_SHAPE(b); sh.SetShape(pcbnew.SHAPE_T_SEGMENT); sh.SetLayer(pcbnew.Edge_Cuts)
