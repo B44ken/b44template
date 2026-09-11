@@ -14,7 +14,7 @@ VIA_D=0.25
 VIA_DRILL=0.15
 PIN_PITCH=0.40
 BUS_PITCH=0.30
-CELL_GAP=1.0
+CELL_GAP=4.0
 ZONE_GAP=5.0
 MARGIN=4.0
 PAD_LANE_SEP=0.28
@@ -165,7 +165,7 @@ if max_need>3:
     raise RuntimeError(f"fanout needs {max_need} layers")
 
 # balanced 3-zone vertical placement. Each zone has its own x-local pin-channel block.
-zones=[{"items":[],"h":0,"pins":0,"pins_by_depth":{1:0,2:0,3:0}} for _ in range(3)]
+zones=[{"items":[],"h":0,"pins":0,"pins_by_depth":{1:0,2:0,3:0}} for _ in range(4)]
 for it in sorted(items,key=lambda x:x["h"],reverse=True):
     z=min(zones,key=lambda z:z["h"])
     z["items"].append(it)
