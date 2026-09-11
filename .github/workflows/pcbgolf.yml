@@ -25,6 +25,10 @@ jobs:
           b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
           pcbnew.ExportSpecctraDSN(b,"work/pcbgolf.dsn")
           PY
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
       - name: download freerouting
         run: |
           URL=$(curl -fsSL https://api.github.com/repos/freerouting/freerouting/releases/latest | jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' | head -1)
