@@ -1,0 +1,73 @@
+name: pcbgolf-route
+on:
+  push:
+    branches: [pcbgolf-work]
+  workflow_dispatch:
+jobs:
+  route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: install tools
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-9.0-releases
+          sudo apt-get update
+          sudo apt-get install -y kicad jq xvfb
+      - name: fetch challenge
+        run: git clone --depth 1 https://github.com/commaai/PCBGolf.git work
+      - name: forward annotate
+        run: /usr/bin/python3 scripts/route_pcbgolf.py work
+      - name: export specctra
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import pcbnew
+          b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
+          pcbnew.ExportSpecctraDSN(b,"work/pcbgolf.dsn")
+          PY
+      - name: download freerouting
+        run: |
+          URL=$(curl -fsSL https://api.github.com/repos/freerouting/freerouting/releases/latest | jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' | head -1)
+          test -n "$URL"
+          curl -fL "$URL" -o freerouting.jar
+      - name: autoroute
+        run: |
+          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 30 -mt 4
+      - name: import route
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import pcbnew
+          p="work/pcbgolf.kicad_pcb"
+          b=pcbnew.LoadBoard(p)
+          ok=pcbnew.ImportSpecctraSES(b,"work/pcbgolf.ses")
+          print("import",ok)
+          pcbnew.SaveBoard(p,b)
+          PY
+      - name: verify and export
+        run: |
+          mkdir -p out
+          cp work/pcbgolf.kicad_pcb out/
+          cp work/forward_annotate.json out/
+          kicad-cli pcb drc --format json -o out/drc.json work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb export svg --layers F.Cu,B.Cu,Edge.Cuts,F.Silkscreen -o out/board.svg work/pcbgolf.kicad_pcb
+          kicad-cli pcb export step -o out/board.step work/pcbgolf.kicad_pcb || true
+          kicad-cli pcb export stl -o out/board.stl work/pcbgolf.kicad_pcb || true
+          /usr/bin/python3 - <<'PY'
+          import json, pcbnew, os
+          b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
+          tracks=list(b.GetTracks())
+          vias=[t for t in tracks if isinstance(t,pcbnew.PCB_VIA)]
+          segs=[t for t in tracks if isinstance(t,pcbnew.PCB_TRACK) and not isinstance(t,pcbnew.PCB_VIA)]
+          edges=[d for d in b.Drawings() if d.GetLayer()==pcbnew.Edge_Cuts]
+          xs=[];ys=[]
+          for e in edges:
+              for p in [e.GetStart(),e.GetEnd()]: xs.append(p.x);ys.append(p.y)
+          rep={"tracks":len(segs),"vias":len(vias),"layers":2}
+          if xs: rep["board_mm"]=[pcbnew.ToMM(max(xs)-min(xs)),pcbnew.ToMM(max(ys)-min(ys))]
+          open("out/route_stats.json","w").write(json.dumps(rep,indent=2))
+          print(rep)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pcbgolf-routed
+          path: out
