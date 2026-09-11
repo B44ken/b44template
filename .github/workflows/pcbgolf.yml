@@ -1,4 +1,7 @@
 name: pcbgolf-route
+concurrency:
+  group: pcbgolf-route-${{ github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [pcbgolf-work]
