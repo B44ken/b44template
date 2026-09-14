@@ -4,15 +4,20 @@ on:
     branches: [pcbgolf-work]
   workflow_dispatch:
 jobs:
-  runtime:
+  models:
     runs-on: ubuntu-24.04
     steps:
-      - name: collect ICU runtime
+      - name: fetch KiCad 3D models
         run: |
-          mkdir -p out
-          docker run --rm -v "$PWD/out:/out" ubuntu:24.04 bash -euxc 'apt-get update -qq; cd /out; apt-get download libicu74; mkdir root; for f in *.deb; do dpkg-deb -x "$f" root; done; tar -C root -czf runtime.tar.gz .; rm -rf root *.deb'
+          set -eux
+          mkdir -p out/Package_TO_SOT_SMD.3dshapes out/Resistor_SMD.3dshapes out/Capacitor_SMD.3dshapes
+          base=https://raw.githubusercontent.com/KiCad/kicad-packages3D/master
+          curl -fL "$base/Package_TO_SOT_SMD.3dshapes/SOT-553.step" -o out/Package_TO_SOT_SMD.3dshapes/SOT-553.step
+          curl -fL "$base/Resistor_SMD.3dshapes/R_01005_0402Metric.step" -o out/Resistor_SMD.3dshapes/R_01005_0402Metric.step
+          curl -fL "$base/Capacitor_SMD.3dshapes/C_01005_0402Metric.step" -o out/Capacitor_SMD.3dshapes/C_01005_0402Metric.step
+          file out/*/*.step
       - uses: actions/upload-artifact@v4
         with:
-          name: pcbgolf-runtime
+          name: pcbgolf-3d-models
           path: out
           retention-days: 7
