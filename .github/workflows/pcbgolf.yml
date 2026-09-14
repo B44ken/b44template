@@ -1,49 +1,18 @@
 name: pcbgolf-route
-concurrency:
-  group: pcbgolf-route-${{ github.ref }}
-  cancel-in-progress: true
 on:
   push:
     branches: [pcbgolf-work]
   workflow_dispatch:
 jobs:
-  prepare:
+  runtime:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - name: fetch source and router
+      - name: collect ICU runtime
         run: |
           mkdir -p out
-          git clone --depth 1 https://github.com/commaai/PCBGolf.git out/PCBGolf-upstream
-          curl --retry 4 -fsSL https://api.github.com/repos/freerouting/freerouting/releases/latest > out/router-release.json
-          URL=$(jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' out/router-release.json | head -1)
-          curl --retry 6 --retry-all-errors -fL "$URL" -o out/freerouting.jar
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '25'
-      - name: collect java
-        run: tar -C "$JAVA_HOME" -czf out/java25.tar.gz .
-      - name: package portable kicad
-        run: |
-          docker run --rm -v "$PWD/out:/out" ubuntu:24.04 bash -euxc '
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update -qq
-            apt-get install -y --no-install-recommends ca-certificates software-properties-common
-            add-apt-repository --yes ppa:kicad/kicad-10.0-releases
-            apt-get update -qq
-            mkdir -p /out/debs /out/kicad-root
-            apt-get -y --download-only -o Dir::Cache::archives=/out/debs install --no-install-recommends kicad kicad-footprints kicad-symbols python3.12 python3.12-minimal libpython3.12-stdlib libpython3.12-minimal
-            apt-get -y --download-only --reinstall -o Dir::Cache::archives=/out/debs install python3.12 python3.12-minimal libpython3.12-stdlib libpython3.12-minimal
-            for f in /out/debs/*.deb; do dpkg-deb -x "$f" /out/kicad-root; done
-            dpkg-query -W > /out/bootstrap-installed.txt
-            tar -C /out/kicad-root -czf /out/kicad-portable.tar.gz .
-            rm -rf /out/debs /out/kicad-root
-          '
+          docker run --rm -v "$PWD/out:/out" ubuntu:24.04 bash -euxc 'apt-get update -qq; cd /out; apt-get download libicu74; mkdir root; for f in *.deb; do dpkg-deb -x "$f" root; done; tar -C root -czf runtime.tar.gz .; rm -rf root *.deb'
       - uses: actions/upload-artifact@v4
         with:
-          name: pcbgolf-toolchain-source
+          name: pcbgolf-runtime
           path: out
-          compression-level: 1
           retention-days: 7
