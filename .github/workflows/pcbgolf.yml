@@ -7,74 +7,43 @@ on:
     branches: [pcbgolf-work]
   workflow_dispatch:
 jobs:
-  route:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: install tools
+      - name: fetch source and router
         run: |
-          sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends kicad jq xvfb
-      - name: fetch challenge
-        run: git clone --depth 1 https://github.com/commaai/PCBGolf.git work
-      - name: forward annotate
-        run: /usr/bin/python3 scripts/route_pcbgolf.py work
-      - name: export specctra
-        run: |
-          /usr/bin/python3 - <<'PY'
-          import pcbnew
-          b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
-          pcbnew.ExportSpecctraDSN(b,"work/pcbgolf.dsn")
-          PY
+          mkdir -p out
+          git clone --depth 1 https://github.com/commaai/PCBGolf.git out/PCBGolf-upstream
+          curl --retry 4 -fsSL https://api.github.com/repos/freerouting/freerouting/releases/latest > out/router-release.json
+          URL=$(jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' out/router-release.json | head -1)
+          curl --retry 6 --retry-all-errors -fL "$URL" -o out/freerouting.jar
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
-      - name: download freerouting
+      - name: collect java
+        run: tar -C "$JAVA_HOME" -czf out/java25.tar.gz .
+      - name: package portable kicad
         run: |
-          URL=$(curl -fsSL https://api.github.com/repos/freerouting/freerouting/releases/latest | jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' | head -1)
-          test -n "$URL"
-          curl --retry 6 --retry-all-errors --retry-delay 2 -fL "$URL" -o freerouting.jar
-      - name: autoroute
-        run: |
-          java -Xmx6g -jar freerouting.jar -de work/pcbgolf.dsn -do work/pcbgolf.ses -mp 1 -mt 4
-      - name: import route
-        run: |
-          /usr/bin/python3 - <<'PY'
-          import pcbnew
-          p="work/pcbgolf.kicad_pcb"
-          b=pcbnew.LoadBoard(p)
-          ok=pcbnew.ImportSpecctraSES(b,"work/pcbgolf.ses")
-          print("import",ok)
-          pcbnew.SaveBoard(p,b)
-          PY
-      - name: verify and export
-        run: |
-          mkdir -p out
-          cp work/pcbgolf.kicad_pcb out/
-          cp work/forward_annotate.json out/
-          kicad-cli pcb drc --format json -o out/drc.json work/pcbgolf.kicad_pcb || true
-          kicad-cli pcb export svg --layers F.Cu,B.Cu,Edge.Cuts,F.Silkscreen -o out/board.svg work/pcbgolf.kicad_pcb
-          kicad-cli pcb export step -o out/board.step work/pcbgolf.kicad_pcb || true
-          kicad-cli pcb export stl -o out/board.stl work/pcbgolf.kicad_pcb || true
-          /usr/bin/python3 - <<'PY'
-          import json, pcbnew, os
-          b=pcbnew.LoadBoard("work/pcbgolf.kicad_pcb")
-          tracks=list(b.GetTracks())
-          vias=[t for t in tracks if isinstance(t,pcbnew.PCB_VIA)]
-          segs=[t for t in tracks if isinstance(t,pcbnew.PCB_TRACK) and not isinstance(t,pcbnew.PCB_VIA)]
-          edges=[d for d in b.Drawings() if d.GetLayer()==pcbnew.Edge_Cuts]
-          xs=[];ys=[]
-          for e in edges:
-              for p in [e.GetStart(),e.GetEnd()]: xs.append(p.x);ys.append(p.y)
-          rep={"tracks":len(segs),"vias":len(vias),"layers":2}
-          if xs: rep["board_mm"]=[pcbnew.ToMM(max(xs)-min(xs)),pcbnew.ToMM(max(ys)-min(ys))]
-          open("out/route_stats.json","w").write(json.dumps(rep,indent=2))
-          print(rep)
-          PY
+          docker run --rm -v "$PWD/out:/out" ubuntu:24.04 bash -euxc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y --no-install-recommends ca-certificates software-properties-common
+            add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+            apt-get update -qq
+            mkdir -p /out/debs /out/kicad-root
+            apt-get -y --download-only -o Dir::Cache::archives=/out/debs install --no-install-recommends kicad kicad-footprints kicad-symbols python3.12 python3.12-minimal libpython3.12-stdlib libpython3.12-minimal
+            apt-get -y --download-only --reinstall -o Dir::Cache::archives=/out/debs install python3.12 python3.12-minimal libpython3.12-stdlib libpython3.12-minimal
+            for f in /out/debs/*.deb; do dpkg-deb -x "$f" /out/kicad-root; done
+            dpkg-query -W > /out/bootstrap-installed.txt
+            tar -C /out/kicad-root -czf /out/kicad-portable.tar.gz .
+            rm -rf /out/debs /out/kicad-root
+          '
       - uses: actions/upload-artifact@v4
         with:
-          name: pcbgolf-routed
+          name: pcbgolf-toolchain-source
           path: out
+          compression-level: 1
+          retention-days: 7
